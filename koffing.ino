@@ -1,5 +1,5 @@
 // Koffing — Air Quality Monitor
-// Arduino Nano ESP32 + PMSA003I + SGP40 + SCD4x + SSD1306 OLED
+// Arduino Nano ESP32 + PMSA003I + SGP40 + SCD4x + MiCS5524 + SSD1306 OLED
 
 #include <Wire.h>
 #include <WiFi.h>
@@ -16,6 +16,8 @@
 #define SCREEN_H 64
 #define LOOP_MS 5000
 #define SCD4X_TIMEOUT_MS 300000  // 5 minutes — boots once, runs for days
+#define MICS_PIN A0
+#define MICS_WARMUP_MS 180000    // 3 minutes before readings are meaningful
 
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, -1);
 Adafruit_PM25AQI pms;
@@ -28,23 +30,34 @@ PubSubClient mqtt(espClient);
 bool pms_ok = false;
 bool sgp_ok = false;
 bool scd_ok = false;
+bool mics_ok = false;
 bool wifi_ok = false;
 bool pms_got_data = false;
 bool sgp_got_data = false;
 bool scd_got_data = false;
+bool mics_got_data = false;
 unsigned long scd_start = 0;
+unsigned long wifi_lost_at = 0;
 
 struct Readings {
   uint16_t pm25;
   int32_t voc;
   uint16_t co2;
+  uint16_t gas;
   float temp;
   float humidity;
-} data = {0, 0, 0, 25.0, 50.0};
+} data = {0, 0, 0, 0, 25.0, 50.0};
 
 // --- WiFi + MQTT ---
 
 void wifi_connect() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("WiFi connecting...");
+  display.display();
+
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("WiFi: connecting");
   unsigned long start = millis();
@@ -55,17 +68,22 @@ void wifi_connect() {
   wifi_ok = (WiFi.status() == WL_CONNECTED);
   Serial.println(wifi_ok ? " OK" : " FAIL");
   if (wifi_ok) {
+    wifi_lost_at = 0;
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
+  } else {
+    wifi_lost_at = millis();
   }
 }
 
 void mqtt_publish() {
   if (WiFi.status() != WL_CONNECTED) {
+    if (wifi_ok) wifi_lost_at = millis();
     wifi_ok = false;
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     return;
   }
+  if (!wifi_ok) wifi_lost_at = 0;
   wifi_ok = true;
 
   if (!mqtt.connected()) {
@@ -83,6 +101,8 @@ void mqtt_publish() {
     n += snprintf(buf + n, sizeof(buf) - n, ",\"temp_f\":%.1f", c_to_f(data.temp));
     n += snprintf(buf + n, sizeof(buf) - n, ",\"humidity\":%.1f", data.humidity);
   }
+  if (mics_got_data)
+    n += snprintf(buf + n, sizeof(buf) - n, ",\"gas\":%u", data.gas);
   snprintf(buf + n, sizeof(buf) - n, "}");
   mqtt.publish("koffing/sensors", buf);
 }
@@ -127,6 +147,13 @@ void read_scd() {
   }
 }
 
+void read_mics() {
+  if (!mics_ok) return;
+  if (millis() < MICS_WARMUP_MS) return;
+  data.gas = analogRead(MICS_PIN);
+  mics_got_data = true;
+}
+
 // Map PM2.5 µg/m³ to Koffing level 0-10 (suboptimal-first scale)
 uint8_t pm25_to_level(uint16_t pm25) {
   if (pm25 <= 3)   return 0;
@@ -142,19 +169,6 @@ uint8_t pm25_to_level(uint16_t pm25) {
 
 float c_to_f(float c) { return c * 9.0 / 5.0 + 32.0; }
 
-// --- Status dots: 4 squares at bottom-right (PMS, SGP, SCD, WiFi) ---
-
-void draw_status(int16_t base_x, int16_t y) {
-  const bool status[] = {pms_ok, sgp_ok, scd_ok, wifi_ok};
-  for (uint8_t i = 0; i < 4; i++) {
-    int16_t x = base_x + i * 5;
-    if (status[i])
-      display.fillRect(x, y, 3, 3, SSD1306_WHITE);
-    else
-      display.drawRect(x, y, 3, 3, SSD1306_WHITE);
-  }
-}
-
 // Print text, inverse (black-on-white) when `alert` is true
 void print_val(const char* label, int32_t val, const char* unit, bool alert) {
   display.print(label);
@@ -162,6 +176,25 @@ void print_val(const char* label, int32_t val, const char* unit, bool alert) {
   display.print(val);
   display.print(unit);
   if (alert) display.setTextColor(SSD1306_WHITE);
+}
+
+// Draw an X at (x, y) — 5x5 pixels
+void draw_x(int16_t x, int16_t y) {
+  display.drawLine(x, y, x + 4, y + 4, SSD1306_WHITE);
+  display.drawLine(x + 4, y, x, y + 4, SSD1306_WHITE);
+}
+
+// Show WiFi error overlay in top-left when disconnected
+void draw_wifi_status() {
+  if (wifi_ok) return;
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+  display.setCursor(0, 0);
+  unsigned long mins = (millis() - wifi_lost_at) / 60000;
+  char buf[16];
+  snprintf(buf, sizeof(buf), "WiFi ERR %lum", mins);
+  display.print(buf);
+  display.setTextColor(SSD1306_WHITE);
 }
 
 // --- Display ---
@@ -179,11 +212,14 @@ void draw_display() {
   // PM2.5 — label
   display.setCursor(x, 0);
   display.print("PM2.5 ug");
+  if (!pms_ok) draw_x(123, 1);
 
   // PM2.5 — big value, inverse if >12 (above EPA "Good")
   display.setCursor(x, 10);
   display.setTextSize(2);
-  if (pms_got_data) {
+  if (!pms_ok) {
+    display.print("---");
+  } else if (pms_got_data) {
     if (data.pm25 > 12) display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
     display.print(data.pm25);
     display.setTextColor(SSD1306_WHITE);
@@ -193,23 +229,40 @@ void draw_display() {
   display.setTextSize(1);
 
   // VOC — inverse if >100 (above Sensirion baseline average)
-  display.setCursor(x, 28);
-  if (!sgp_ok || !sgp_got_data) {
+  display.setCursor(x, 27);
+  if (!sgp_ok) {
+    display.print("VOC ---");
+    draw_x(123, 28);
+  } else if (!sgp_got_data) {
     display.print("VOC ---");
   } else {
     print_val("VOC ", data.voc, "", data.voc > 100);
   }
 
-  // CO2 — inverse if >1500 ppm (poor indoor air)
-  display.setCursor(x, 38);
-  if (scd_ok && scd_got_data) {
-    print_val("CO2 ", data.co2, "p", data.co2 > 800);
-  } else {
+  // CO2 — inverse if >800 ppm (poor indoor air)
+  display.setCursor(x, 36);
+  if (!scd_ok) {
     display.print("CO2 ---");
+    draw_x(123, 37);
+  } else if (!scd_got_data) {
+    display.print("CO2 ---");
+  } else {
+    print_val("CO2 ", data.co2, "p", data.co2 > 800);
   }
 
-  // Temp (F) + Humidity — only show if SCD4x is providing real data
-  display.setCursor(x, 50);
+  // GAS — raw analog, inverse if elevated (>300 ADC)
+  display.setCursor(x, 45);
+  if (!mics_ok) {
+    display.print("GAS ---");
+    draw_x(123, 46);
+  } else if (!mics_got_data) {
+    display.print("GAS ---");
+  } else {
+    print_val("GAS ", data.gas, "", data.gas > 300);
+  }
+
+  // Temp (F) + Humidity
+  display.setCursor(x, 54);
   if (scd_got_data) {
     display.print((int)c_to_f(data.temp));
     display.print("F ");
@@ -219,13 +272,7 @@ void draw_display() {
     display.print("--F --%");
   }
 
-  // Version label bottom-left
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 56);
-  display.print("koffing v0");
-
-  draw_status(108, 61);
+  draw_wifi_status();
   display.display();
 }
 
@@ -235,6 +282,7 @@ void serial_log() {
   Serial.print("PM2.5=");  Serial.print(pms_got_data ? (int)data.pm25 : -1);
   Serial.print(" VOC=");   Serial.print(sgp_got_data ? (int)data.voc : -1);
   Serial.print(" CO2=");   Serial.print(scd_got_data ? (int)data.co2 : -1);
+  Serial.print(" GAS=");   Serial.print(mics_got_data ? (int)data.gas : -1);
   if (scd_got_data) {
     Serial.print(" T=");   Serial.print(c_to_f(data.temp), 1);
     Serial.print("F H=");  Serial.print(data.humidity, 1);
@@ -278,6 +326,10 @@ void setup() {
   scd_start = millis();
   Serial.print("SCD4x: "); Serial.println(scd_ok ? "started" : "FAIL");
 
+  pinMode(MICS_PIN, INPUT);
+  mics_ok = true;
+  Serial.println("MiCS:  OK (warmup 3 min)");
+
   wifi_connect();
   mqtt.setServer(MQTT_SERVER, MQTT_PORT);
 
@@ -288,6 +340,7 @@ void loop() {
   read_pms();
   read_sgp();
   read_scd();
+  read_mics();
   draw_display();
   serial_log();
   mqtt.loop();

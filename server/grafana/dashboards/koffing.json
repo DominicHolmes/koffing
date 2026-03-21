@@ -84,10 +84,36 @@
       }
     },
     {
+      "id": 6,
+      "title": "Gas (raw ADC)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "influxdb", "uid": "influxdb-koffing" },
+      "targets": [{
+        "query": "SELECT time, gas FROM air_quality WHERE $timeFilter",
+        "rawQuery": true,
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 300, "color": "yellow" },
+              { "value": 800, "color": "red" }
+            ]
+          },
+          "custom": { "thresholdsStyle": { "mode": "line" } }
+        }
+      }
+    },
+    {
       "id": 4,
       "title": "Temperature (°F)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
       "datasource": { "type": "influxdb", "uid": "influxdb-koffing" },
       "targets": [{
         "query": "SELECT time, temp_f FROM air_quality WHERE $timeFilter",
@@ -102,7 +128,7 @@
       "id": 5,
       "title": "Humidity (%)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
       "datasource": { "type": "influxdb", "uid": "influxdb-koffing" },
       "targets": [{
         "query": "SELECT time, humidity FROM air_quality WHERE $timeFilter",

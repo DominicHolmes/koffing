@@ -43,23 +43,38 @@ for i in $(seq 1 20); do
   echo -n "."
 done
 
-# 4. Create database
-influxdb3 create database koffing 2>/dev/null || echo "Database 'koffing' already exists."
-
-# 5. Create admin token
-echo "Creating API token..."
-TOKEN_OUTPUT=$(influxdb3 create token --admin 2>&1 || true)
-INFLUX_TOKEN=$(echo "$TOKEN_OUTPUT" | sed -n 's/.*Token: *//p' | head -1)
-
-if [ -z "$INFLUX_TOKEN" ]; then
-  echo "Could not parse token. Output was:"
-  echo "$TOKEN_OUTPUT"
-  echo "You may need to set the token manually in telegraf.conf and grafana datasource."
-  INFLUX_TOKEN="INFLUX_TOKEN_PLACEHOLDER"
-else
-  echo "Token created. Save this — it won't be shown again:"
-  echo "  $INFLUX_TOKEN"
+# 4. Create or load admin token (must happen before database creation so we have auth)
+TOKEN_FILE="$SCRIPT_DIR/.influx_token"
+if [ -f "$TOKEN_FILE" ]; then
+  INFLUX_TOKEN=$(cat "$TOKEN_FILE")
+  # Verify the token still works; if not, delete it and fall through to recreate
+  if ! influxdb3 show tokens --token "$INFLUX_TOKEN" >/dev/null 2>&1; then
+    echo "Saved token is no longer valid, creating a new one..."
+    rm -f "$TOKEN_FILE"
+    INFLUX_TOKEN=""
+  else
+    echo "Using existing API token from $TOKEN_FILE"
+  fi
 fi
+
+if [ -z "${INFLUX_TOKEN:-}" ]; then
+  echo "Creating API token..."
+  TOKEN_OUTPUT=$(influxdb3 create token --admin 2>&1 || true)
+  INFLUX_TOKEN=$(echo "$TOKEN_OUTPUT" | sed -n 's/.*Token: *//p' | head -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:cntrl:]')
+
+  if [ -z "$INFLUX_TOKEN" ]; then
+    echo "Could not parse token. Output was:"
+    echo "$TOKEN_OUTPUT"
+    echo "You may need to set the token manually in telegraf.conf and grafana datasource."
+    INFLUX_TOKEN="INFLUX_TOKEN_PLACEHOLDER"
+  else
+    echo "$INFLUX_TOKEN" > "$TOKEN_FILE"
+    echo "Token created and saved to $TOKEN_FILE"
+  fi
+fi
+
+# 5. Create database
+influxdb3 create database koffing --token "$INFLUX_TOKEN" 2>/dev/null || echo "Database 'koffing' already exists."
 
 # 6. Configure Telegraf
 echo "Configuring Telegraf..."
@@ -91,9 +106,10 @@ brew services restart grafana
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "Grafana:  http://localhost:3000  (admin / admin)"
-echo "InfluxDB: http://localhost:8181"
-echo "MQTT:     localhost:1883"
+HOSTNAME=$(hostname)
+echo "Grafana:  http://localhost:3000 or http://$HOSTNAME:3000"
+echo "InfluxDB: http://localhost:8181 or http://$HOSTNAME:8181"
+echo "MQTT:     localhost:1883 or $HOSTNAME:1883"
 echo ""
 echo "Next: set MQTT_SERVER in secrets.h to this machine's IP or hostname.local"
 echo "Test MQTT: mosquitto_sub -t 'koffing/sensors'"

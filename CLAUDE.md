@@ -8,7 +8,7 @@ Arduino Nano ESP32-based air quality monitoring station.
 | PMSA003I (PM2.5) | I2C / STEMMA QT | 0x12 | Adafruit PM25 AQI Sensor |
 | SGP40 (VOC) | I2C / STEMMA QT | 0x59 | Adafruit SGP40 Sensor |
 | SCD4x (CO2/Temp/Humidity) | I2C / STEMMA QT | 0x62 | Sensirion I2C SCD4x |
-| MiCS5524 (CO/VOC) | Analog | N/A | None (raw analogRead) |
+| MiCS5524 (CO/VOC) | Analog (A0) | N/A | None (raw analogRead) |
 | OLED 128x64 SSD1306 | I2C | 0x3C | Adafruit SSD1306 |
 
 ## Board
@@ -34,7 +34,7 @@ cd server && ./setup.sh  # installs and starts Mosquitto, Telegraf, InfluxDB, Gr
 ## WiFi / MQTT
 - `secrets.h` (gitignored) — WiFi SSID/password and MQTT broker IP. Copy from `secrets.h.example`.
 - ESP32 publishes JSON to MQTT topic `koffing/sensors` every 5s
-- Payload: `{"uptime":N,"pm25":N,"voc":N,"co2":N,"temp_f":N,"humidity":N}` (fields omitted if sensor has no data)
+- Payload: `{"uptime":N,"pm25":N,"voc":N,"co2":N,"temp_f":N,"humidity":N,"gas":N}` (fields omitted if sensor has no data)
 - Non-blocking reconnection — one attempt per loop, never stalls sensor reads
 - PubSubClient library for MQTT
 
@@ -52,7 +52,7 @@ Thresholds flag **suboptimal** conditions, not just dangerous ones. The goal is 
 
 ## Key Design Decisions
 - SCD4x provides temp/humidity for SGP40 VOC compensation (no separate SHT31)
-- MiCS5524 deferred — analog sensor, not yet wired
+- MiCS5524 on A0 (ADC1, WiFi-safe) — raw analog, 3-min warmup before data flows
 - 5-second main loop interval (governed by SCD4x periodic measurement)
 - Data struct serialized as JSON and published over MQTT (WiFi)
 - WiFi uses ADC1-safe pins only (ADC2 unavailable when WiFi active)

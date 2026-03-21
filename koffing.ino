@@ -272,6 +272,11 @@ void draw_display() {
     display.print("--F --%");
   }
 
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 56);
+  display.print("koffing v1");
+
   draw_wifi_status();
   display.display();
 }

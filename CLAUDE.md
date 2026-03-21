@@ -28,6 +28,9 @@ arduino-cli monitor -p /dev/cu.usbmodem*
 - `wiring/` — wiring diagrams
 - `plans/` — build plans
 
+## Alert Philosophy
+Thresholds flag **suboptimal** conditions, not just dangerous ones. The goal is environment optimization — know when air quality is degrading performance, focus, or sleep, well before it reaches "unhealthy" levels.
+
 ## Key Design Decisions
 - SCD4x provides temp/humidity for SGP40 VOC compensation (no separate SHT31)
 - MiCS5524 deferred — analog sensor, not yet wired

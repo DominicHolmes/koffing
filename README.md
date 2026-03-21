@@ -1,6 +1,8 @@
 # Koffing
 
-Air quality monitor with personality. An Arduino Nano ESP32 reads PM2.5, CO2, VOC, temperature, and humidity, then displays the results on an OLED alongside an animated Koffing whose expression and gas clouds reflect how bad (or good) the air is.
+Air quality monitor built around an Arduino Nano ESP32. Reads PM2.5, CO2, VOC, temperature, and humidity, then shows everything on a little OLED with an animated Koffing sprite whose mood tracks how bad the air is.
+
+![Koffing states](art/preview/preview.png)
 
 ## Hardware
 
@@ -13,11 +15,11 @@ Air quality monitor with personality. An Arduino Nano ESP32 reads PM2.5, CO2, VO
 | [OLED SSD1306](research/oled_ssd1306.md) | 128x64 mono display | I2C | 0x3C |
 | [Arduino Nano ESP32](research/nano_esp32.md) | Microcontroller (WiFi-capable) | -- | -- |
 
-SCD4x provides temp/humidity compensation for the SGP40 VOC sensor, eliminating the need for a separate SHT31. MiCS5524 is deferred (analog, not yet wired). See [SCD4x debugging notes](research/scd4x_debugging.md) for a known data-ready issue.
+The SCD4x handles temp/humidity compensation for the SGP40, so no separate SHT31 needed. MiCS5524 isn't wired up yet. See [SCD4x debugging notes](research/scd4x_debugging.md) for a known data-ready quirk.
 
 ## Wiring
 
-All I2C sensors are daisy-chained via STEMMA QT. The OLED connects to the same I2C bus with jumper wires.
+All I2C sensors daisy-chained via STEMMA QT. OLED on the same bus with jumper wires.
 
 ```
                           STEMMA QT daisy chain
@@ -35,7 +37,7 @@ Arduino Nano ESP32 ──QT──> PMSA003I ──QT──> SGP40 ──QT──
                           └─────────────────┘
 ```
 
-Future: MiCS5524 analog sensor on A0 (5V from VBUS, En! tied to GND).
+MiCS5524 will eventually go on A0 (5V from VBUS, En! tied to GND).
 
 Full wiring details: [wiring/i2c_chain.md](wiring/i2c_chain.md)
 
@@ -47,57 +49,70 @@ arduino-cli upload -p /dev/cu.usbmodem* --fqbn arduino:esp32:nano_nora .
 arduino-cli monitor -p /dev/cu.usbmodem*
 ```
 
+## Alert thresholds
+
+These are tuned to flag *suboptimal* conditions, not just dangerous ones. The point is knowing when your air is hurting focus or sleep, not waiting until it's actually unhealthy. Values that cross a threshold show as inverted (black-on-white) on the OLED.
+
+| Sensor | Threshold | What it means |
+|--------|-----------|---------------|
+| PM2.5 | > 12 µg/m³ | Above EPA "Good." Open a window or run a filter. |
+| VOC | > 100 | Sensirion baseline is 100. Above that = air getting worse. |
+| CO2 | > 800 ppm | Cognitive performance drops measurably around 800-1000 ppm. |
+
 ## Koffing sprite
 
-The OLED displays an animated Koffing whose mood tracks air quality. As pollution increases, he grins wider and gas clouds fill the screen — he's a poison gas Pokemon, after all.
+The OLED shows an animated Koffing whose expression matches air quality. Worse air → bigger grin → more gas clouds on screen.
 
-![Koffing states](art/preview/preview.png)
-
-**Levels 0-10**: The sprite system takes a single integer (0 = clean air, 10 = hazardous) and handles face selection and cloud placement. Clouds accumulate incrementally — small wisps first, then medium puffs, then large billows.
-
-| Level | Face | Description |
-|-------|------|-------------|
-| 0 | Happy | Content smile, no clouds |
-| 1-4 | Grin | Squinting toothy grin, 1-4 clouds |
-| 5-6 | Thrilled | Raised eyebrows, bigger grin, 5-6 clouds |
-| 7-10 | Ecstatic | Wide-eyed mania, huge grin, 7-10 clouds |
-
-### Using the sprite library
-
-The integration code only needs one include and one function call:
+The sprite takes a single integer (0 = clean, 10 = hazardous):
 
 ```c
 #include "art/include/koffing_gfx.h"
 
-// Map your AQI to 0-10, then:
 koffing_draw(display, level, 0, 0);
 ```
 
+| Level | Face | Clouds |
+|-------|------|--------|
+| 0 | Happy | None |
+| 1-4 | Grin | 1-4, small wisps |
+| 5-6 | Thrilled | 5-6, medium puffs |
+| 7-10 | Ecstatic | 7-10, big billows |
+
+PM2.5 mapping:
+
+| PM2.5 µg/m³ | Level |
+|--------------|-------|
+| 0-3 | 0 |
+| 4-6 | 1 |
+| 7-9 | 2 |
+| 10-12 | 3 |
+| 13-20 | 4-5 |
+| 21-35 | 6-7 |
+| 36-55 | 8 |
+| 56-100 | 9 |
+| 100+ | 10 |
+
 ### Regenerating art
 
-Sprites are defined as pixel grids in Python and exported as C headers (mono bitmaps + indexed color with RGB565 palettes). To regenerate after editing:
+Sprites are pixel grids defined in Python, exported as C headers (mono bitmaps + indexed color with RGB565 palettes).
 
 ```bash
 cd art/generator
 uv run python generate.py
 ```
 
-This outputs:
-- `art/include/*.h` — C headers for Arduino (the only files the sketch needs)
-- `art/preview/` — PNGs, XBMs, and a preview sheet for human review
-
-Color sprites use a 4-bit indexed palette, so a future "shiny" Koffing variant (blue/grey body, pink clouds) is just a palette swap with zero additional sprite data.
+Outputs `art/include/*.h` (what the sketch uses) and `art/preview/` (PNGs for review). Color sprites use a 4-bit indexed palette, so a shiny variant would just be a palette swap.
 
 ## Project structure
 
 ```
 koffing.ino              Main sketch
-research/                Sensor documentation and API notes
+research/                Sensor docs and API notes
 wiring/                  Wiring diagrams
 plans/                   Build plans
 art/
   include/               Arduino C headers (sprite data + library)
-    koffing_gfx.h        Public API — the only file you need to include
+    koffing_gfx.h        Public API — only file you need to include
   preview/               Human-reviewable images
   generator/             Python sprite generator
 ```

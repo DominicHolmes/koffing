@@ -13,8 +13,6 @@
 #define SCREEN_H 64
 #define LOOP_MS 5000
 #define SCD4X_TIMEOUT_MS 30000
-#define PAGE_MS 4000
-#define NUM_PAGES 2
 
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, -1);
 Adafruit_PM25AQI pms;
@@ -29,15 +27,11 @@ unsigned long scd_start = 0;
 
 struct Readings {
   uint16_t pm25;
-  uint16_t aqi;
   int32_t voc;
   uint16_t co2;
   float temp;
   float humidity;
-} data = {0, 0, 0, 0, 25.0, 50.0};
-
-uint8_t page = 0;
-unsigned long last_page = 0;
+} data = {0, 0, 0, 25.0, 50.0};
 
 // --- Sensor reads ---
 
@@ -46,7 +40,6 @@ void read_pms() {
   PM25_AQI_Data d;
   if (pms.read(&d)) {
     data.pm25 = d.pm25_env;
-    data.aqi = d.pm25_env; // raw µg/m³ as fallback; see aqi_to_level()
   }
 }
 
@@ -75,116 +68,97 @@ void read_scd() {
   }
 }
 
-// Map PM2.5 µg/m³ to Koffing level 0-10
-// Roughly follows EPA breakpoints: 0-12 good, 12-35 moderate, 35-55 USG, etc.
+// Map PM2.5 µg/m³ to Koffing level 0-10 (suboptimal-first scale)
 uint8_t pm25_to_level(uint16_t pm25) {
-  if (pm25 <= 12)  return 0;
-  if (pm25 <= 35)  return constrain(map(pm25, 13, 35, 1, 3), 1, 3);
-  if (pm25 <= 55)  return constrain(map(pm25, 36, 55, 4, 5), 4, 5);
-  if (pm25 <= 150) return constrain(map(pm25, 56, 150, 6, 8), 6, 8);
-  if (pm25 <= 250) return 9;
+  if (pm25 <= 3)   return 0;
+  if (pm25 <= 6)   return 1;
+  if (pm25 <= 9)   return 2;
+  if (pm25 <= 12)  return 3;
+  if (pm25 <= 20)  return constrain(map(pm25, 13, 20, 4, 5), 4, 5);
+  if (pm25 <= 35)  return constrain(map(pm25, 21, 35, 6, 7), 6, 7);
+  if (pm25 <= 55)  return 8;
+  if (pm25 <= 100) return 9;
   return 10;
 }
 
-// --- Status dots ---
-// 3 dots at bottom-right: PMS, SGP, SCD
-// Filled = ok, hollow = failed/missing
+float c_to_f(float c) { return c * 9.0 / 5.0 + 32.0; }
+
+// --- Status dots: 3 squares at bottom-right (PMS, SGP, SCD) ---
 
 void draw_status(int16_t base_x, int16_t y) {
   const bool status[] = {pms_ok, sgp_ok, scd_ok};
   for (uint8_t i = 0; i < 3; i++) {
     int16_t x = base_x + i * 5;
-    if (status[i]) {
+    if (status[i])
       display.fillRect(x, y, 3, 3, SSD1306_WHITE);
-    } else {
+    else
       display.drawRect(x, y, 3, 3, SSD1306_WHITE);
-    }
   }
 }
 
-// --- Display pages ---
+// Print text, inverse (black-on-white) when `alert` is true
+void print_val(const char* label, int32_t val, const char* unit, bool alert) {
+  display.print(label);
+  if (alert) display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+  display.print(val);
+  display.print(unit);
+  if (alert) display.setTextColor(SSD1306_WHITE);
+}
 
-void draw_page_koffing() {
+// --- Display ---
+
+void draw_display() {
+  display.clearDisplay();
+
   uint8_t level = pm25_to_level(data.pm25);
   koffing_draw(display, level, 0, 0);
 
   int16_t x = 66;
   display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
 
+  // PM2.5 — label
   display.setCursor(x, 0);
-  display.print("PM2.5");
+  display.print("PM2.5 ug");
+
+  // PM2.5 — big value, inverse if >12 (above EPA "Good")
   display.setCursor(x, 10);
   display.setTextSize(2);
+  if (data.pm25 > 12) display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
   display.print(data.pm25);
+  display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
 
+  // VOC — inverse if >200 (notably above average)
   display.setCursor(x, 28);
-  display.print("VOC ");
-  display.print(data.voc);
+  if (sgp_ok && data.voc == 0) {
+    display.print("VOC ...");
+  } else {
+    print_val("VOC ", data.voc, "", data.voc > 100);
+  }
 
+  // CO2 — inverse if >1500 ppm (poor indoor air)
   display.setCursor(x, 38);
   if (scd_ok && scd_got_data) {
-    display.print("CO2 ");
-    display.print(data.co2);
+    print_val("CO2 ", data.co2, "p", data.co2 > 800);
   } else {
     display.print("CO2 ---");
   }
 
-  display.setCursor(x, 48);
-  display.print(data.temp, 0);
-  display.print("C ");
-  display.print(data.humidity, 0);
+  // Temp (F) + Humidity
+  display.setCursor(x, 50);
+  display.print((int)c_to_f(data.temp));
+  display.print("F ");
+  display.print((int)data.humidity);
   display.print("%");
 
-  draw_status(113, 61);
-}
-
-void draw_page_detail() {
+  // Version label bottom-left
   display.setTextSize(1);
-
-  display.setCursor(0, 0);
-  display.print("PM2.5: ");
-  display.print(data.pm25);
-  display.println(" ug/m3");
-
-  display.print("VOC:   ");
-  display.println(data.voc);
-
-  display.print("CO2:   ");
-  if (scd_ok && scd_got_data) {
-    display.print(data.co2);
-    display.println(" ppm");
-  } else {
-    display.println("---");
-  }
-
-  display.println();
-
-  display.print("Temp:  ");
-  display.print(data.temp, 1);
-  display.println(" C");
-
-  display.print("Hum:   ");
-  display.print(data.humidity, 1);
-  display.println(" %");
-
-  display.println();
-  display.print("Level: ");
-  display.print(pm25_to_level(data.pm25));
-  display.print("/");
-  display.print(KOFFING_LEVEL_MAX);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 56);
+  display.print("koffing v0");
 
   draw_status(113, 61);
-}
-
-void update_display() {
-  if (millis() - last_page > PAGE_MS) {
-    page = (page + 1) % NUM_PAGES;
-    last_page = millis();
-  }
-  display.clearDisplay();
-  if (page == 0) draw_page_koffing();
-  else           draw_page_detail();
   display.display();
 }
 
@@ -194,9 +168,9 @@ void serial_log() {
   Serial.print("PM2.5=");  Serial.print(data.pm25);
   Serial.print(" VOC=");   Serial.print(data.voc);
   Serial.print(" CO2=");   Serial.print(scd_got_data ? data.co2 : 0);
-  Serial.print(" T=");     Serial.print(data.temp, 1);
-  Serial.print(" H=");     Serial.print(data.humidity, 1);
-  Serial.print(" LVL=");   Serial.println(pm25_to_level(data.pm25));
+  Serial.print(" T=");     Serial.print(c_to_f(data.temp), 1);
+  Serial.print("F H=");    Serial.print(data.humidity, 1);
+  Serial.print("% LVL=");  Serial.println(pm25_to_level(data.pm25));
 }
 
 // --- Main ---
@@ -234,7 +208,6 @@ void setup() {
   scd_start = millis();
   Serial.print("SCD4x: "); Serial.println(scd_ok ? "started" : "FAIL");
 
-  last_page = millis();
   Serial.println("Init complete.\n");
 }
 
@@ -242,7 +215,7 @@ void loop() {
   read_pms();
   read_sgp();
   read_scd();
-  update_display();
+  draw_display();
   serial_log();
   delay(LOOP_MS);
 }

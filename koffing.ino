@@ -205,7 +205,7 @@ void draw_display() {
   uint8_t level = pm25_to_level(data.pm25);
   koffing_draw(display, level, 0, 0);
 
-  int16_t x = 66;
+  int16_t x = 68;
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
 
@@ -229,10 +229,10 @@ void draw_display() {
   display.setTextSize(1);
 
   // VOC — inverse if >100 (above Sensirion baseline average)
-  display.setCursor(x, 27);
+  display.setCursor(x, 26);
   if (!sgp_ok) {
     display.print("VOC ---");
-    draw_x(123, 28);
+    draw_x(123, 27);
   } else if (!sgp_got_data) {
     display.print("VOC ---");
   } else {
@@ -251,10 +251,10 @@ void draw_display() {
   }
 
   // GAS — raw analog, inverse if elevated (>300 ADC)
-  display.setCursor(x, 45);
+  display.setCursor(x, 46);
   if (!mics_ok) {
     display.print("GAS ---");
-    draw_x(123, 46);
+    draw_x(123, 47);
   } else if (!mics_got_data) {
     display.print("GAS ---");
   } else {
@@ -262,7 +262,7 @@ void draw_display() {
   }
 
   // Temp (F) + Humidity
-  display.setCursor(x, 54);
+  display.setCursor(x, 56);
   if (scd_got_data) {
     display.print((int)c_to_f(data.temp));
     display.print("F ");

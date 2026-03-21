@@ -65,17 +65,59 @@ cp secrets.h.example secrets.h
 The server stack (Mosquitto, Telegraf, InfluxDB, Grafana) runs on any Mac via Homebrew. On your server machine:
 
 ```bash
-cd server
+git clone <this-repo> && cd koffing/server
 ./setup.sh
 ```
 
-This installs all four services, configures them, and starts them. Once running:
+This installs Mosquitto, Telegraf, InfluxDB 3, and Grafana via Homebrew, configures them, generates an InfluxDB API token, and starts all four services. It will print the token once — save it if you ever need to debug manually.
+
+Once running:
 
 - **Grafana dashboards:** http://localhost:3000 (default login: admin / admin)
 - **InfluxDB:** http://localhost:8181
 - **MQTT broker:** localhost:1883
 
 Grafana is accessible from any device on your WiFi — just use the server's IP or `hostname.local`:3000 from your phone or laptop.
+
+To verify data is flowing, subscribe to the MQTT topic:
+
+```bash
+mosquitto_sub -t "koffing/sensors"
+```
+
+You should see a JSON line every 5 seconds once the ESP32 is connected.
+
+### Server teardown
+
+To stop all services and remove configs (but keep your data):
+
+```bash
+cd server
+./teardown.sh
+```
+
+To also delete all stored sensor data:
+
+```bash
+rm -rf ~/.influxdb3_data                            # InfluxDB time-series data
+rm -f "$(brew --prefix)/var/lib/grafana/grafana.db"  # Grafana dashboards/settings
+```
+
+To fully uninstall the packages:
+
+```bash
+brew uninstall mosquitto telegraf influxdb grafana
+```
+
+### Data storage
+
+All data lives on the server machine:
+
+| Service | Location | Contents |
+|---------|----------|----------|
+| InfluxDB | `~/.influxdb3_data/` | All sensor readings (time-series) |
+| Grafana | `$(brew --prefix)/var/lib/grafana/` | Dashboard definitions, user settings |
+| Mosquitto | In-memory only | No persistence — InfluxDB handles storage |
 
 For architecture details and why this stack was chosen over alternatives: [research/server_stack.md](research/server_stack.md)
 

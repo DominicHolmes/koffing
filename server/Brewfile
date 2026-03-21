@@ -1,0 +1,4 @@
+brew "mosquitto", restart_service: true
+brew "telegraf", restart_service: true
+brew "influxdb"
+brew "grafana", restart_service: true

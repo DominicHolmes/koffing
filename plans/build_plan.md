@@ -10,12 +10,12 @@ Building an air quality monitoring station ("Koffing") using an Arduino Nano ESP
 |-----------|-----------|----------|--------|
 | PMSA003I (PM2.5) | I2C / STEMMA QT | 0x12 | **Working** |
 | SGP40 (VOC) | I2C / STEMMA QT | 0x59 | **Working** |
-| SCD4x (CO2/Temp/Humidity) | I2C / STEMMA QT | 0x62 | **BLOCKED — see research/scd4x_debugging.md** |
+| SCD4x (CO2/Temp/Humidity) | I2C / STEMMA QT | 0x62 | **Working** (was blocked — needed real power supply, not USB from computer) |
 | MiCS5524 (CO/VOC) | Analog (Ao pin) | N/A | Deferred — not wired yet |
 | OLED 128x64 SSD1306 | I2C (GND/VCC/SCL/SDA) | 0x3C | **Working** |
 | Arduino Nano ESP32 | — | — | Board core installed |
 
-No I2C address conflicts. Board port: `/dev/cu.usbmodemE4B063AF29FC2`
+No I2C address conflicts.
 
 ## Completed
 
@@ -26,9 +26,9 @@ No I2C address conflicts. Board port: `/dev/cu.usbmodemE4B063AF29FC2`
 - [x] Step 4: Main koffing.ino — reads PMSA003I + SGP40 + SCD4x (graceful degradation), OLED with Koffing sprite + sensor data + status dots
 - [x] Koffing pixel art sprite library (art/include/koffing_gfx.h)
 
-## Current blocker
+## Resolved blocker
 
-**SCD4x never produces measurement data.** I2C communication works (serial number reads, commands ACK), but `getDataReadyStatus` always returns 0x0000. Self-test fails with error 527 (NotEnoughDataError). Extensive debugging documented in `research/scd4x_debugging.md`. Likely defective sensor or power issue.
+**SCD4x** was not producing data when powered via USB from a computer. Works fine on real power supply. Root cause was likely insufficient current — SCD4x peaks at 205mA during measurement. Debugging log preserved in `research/scd4x_debugging.md`.
 
 ## Remaining work
 
@@ -51,19 +51,31 @@ Key timing:
 
 ### Step 5: Compile, upload, verify
 ```bash
-arduino-cli compile --fqbn arduino:esp32:nano_nora /Users/belafonte/Developer/arduino/koffing/
-arduino-cli upload -p /dev/cu.usbmodemE4B063AF29FC2 --fqbn arduino:esp32:nano_nora /Users/belafonte/Developer/arduino/koffing/
+arduino-cli compile --fqbn arduino:esp32:nano_nora .
+arduino-cli upload -p /dev/cu.usbmodem* --fqbn arduino:esp32:nano_nora .
 ```
 
+### Phase 2: WiFi + MQTT reporting — IN PROGRESS
+ESP32 publishes sensor data over MQTT to a self-hosted server stack.
+
+- [x] Add WiFi + MQTT to koffing.ino (PubSubClient, non-blocking reconnect)
+- [x] secrets.h template for WiFi/MQTT credentials
+- [x] Server configs (Mosquitto, Telegraf, InfluxDB, Grafana) in server/
+- [x] Brewfile + setup.sh for one-command server install
+- [x] Grafana dashboard with 5 panels (PM2.5, CO2, VOC, Temp, Humidity)
+- [ ] Test end-to-end: ESP32 → MQTT → InfluxDB → Grafana
+- [ ] Deploy to server MacBook Air
+
+Architecture decision: [research/server_stack.md](../research/server_stack.md)
+
 ### Future phases
-- **Phase 2 (P2):** WiFi dashboard — ESP32 serves web page or pushes to home server
-- **Phase 3:** MiCS5524 analog sensor integration (Ao→A0, analog-only board)
-- **Phase 4 (P3):** Koffing animation on OLED
+- **Phase 3:** MiCS5524 analog sensor integration (Ao→A0, ADC1 pin — safe with WiFi)
+- **Phase 4:** Koffing animation on OLED
 
 ## Build commands
 ```bash
 arduino-cli compile --fqbn arduino:esp32:nano_nora .
-arduino-cli upload -p /dev/cu.usbmodemE4B063AF29FC2 --fqbn arduino:esp32:nano_nora .
+arduino-cli upload -p /dev/cu.usbmodem* --fqbn arduino:esp32:nano_nora .
 ```
 
 ## Monitor helper

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.koffing.influxdb3</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>INFLUXDB3_BIN_PLACEHOLDER</string>
+    <string>serve</string>
+    <string>--node-id</string>
+    <string>koffing</string>
+    <string>--object-store</string>
+    <string>file</string>
+    <string>--data-dir</string>
+    <string>DATA_DIR_PLACEHOLDER</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>LOG_DIR_PLACEHOLDER/influxdb3.log</string>
+  <key>StandardErrorPath</key>
+  <string>LOG_DIR_PLACEHOLDER/influxdb3.err</string>
+</dict>
+</plist>

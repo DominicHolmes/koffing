@@ -2,7 +2,8 @@
 """Monitor Arduino serial output. Uses arduino-cli monitor with line buffering."""
 import subprocess, time, sys, os
 
-PORT = "/dev/cu.usbmodemE4B063AF29FC2"
+import glob
+PORT = glob.glob("/dev/cu.usbmodem*")[0] if glob.glob("/dev/cu.usbmodem*") else "/dev/cu.usbmodem0"
 BAUD = "115200"
 WAIT = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 DURATION = int(sys.argv[2]) if len(sys.argv) > 2 else 30

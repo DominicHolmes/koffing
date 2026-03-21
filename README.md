@@ -15,7 +15,7 @@ Air quality monitor built around an Arduino Nano ESP32. Reads PM2.5, CO2, VOC, t
 | [OLED SSD1306](research/oled_ssd1306.md) | 128x64 mono display | I2C | 0x3C |
 | [Arduino Nano ESP32](research/nano_esp32.md) | Microcontroller (WiFi-capable) | -- | -- |
 
-The SCD4x handles temp/humidity compensation for the SGP40, so no separate SHT31 needed. MiCS5524 isn't wired up yet. See [SCD4x debugging notes](research/scd4x_debugging.md) for a known data-ready quirk.
+The SCD4x handles temp/humidity compensation for the SGP40, so no separate SHT31 needed. MiCS5524 isn't wired up yet. Note: the SCD4x needs real power (not USB from a laptop) — it peaks at 205mA during measurement. See [SCD4x debugging notes](research/scd4x_debugging.md) for the full story.
 
 ## Wiring
 
@@ -41,9 +41,48 @@ MiCS5524 will eventually go on A0 (5V from VBUS, En! tied to GND).
 
 Full wiring details: [wiring/i2c_chain.md](wiring/i2c_chain.md)
 
+## WiFi Reporting
+
+Koffing publishes sensor readings over MQTT every 5 seconds. A server stack stores historical data and serves dashboards.
+
+```
+ESP32 ──MQTT──▶ Mosquitto ──▶ Telegraf ──▶ InfluxDB ◀── Grafana ──▶ browser
+```
+
+### ESP32 setup
+
+Copy `secrets.h.example` to `secrets.h` and fill in your WiFi credentials and MQTT broker address:
+
+```bash
+cp secrets.h.example secrets.h
+# edit secrets.h with your values
+```
+
+`MQTT_SERVER` should be the IP or `.local` hostname of whatever machine runs the server stack (e.g. `192.168.1.50` or `my-server.local`).
+
+### Server setup
+
+The server stack (Mosquitto, Telegraf, InfluxDB, Grafana) runs on any Mac via Homebrew. On your server machine:
+
+```bash
+cd server
+./setup.sh
+```
+
+This installs all four services, configures them, and starts them. Once running:
+
+- **Grafana dashboards:** http://localhost:3000 (default login: admin / admin)
+- **InfluxDB:** http://localhost:8181
+- **MQTT broker:** localhost:1883
+
+Grafana is accessible from any device on your WiFi — just use the server's IP or `hostname.local`:3000 from your phone or laptop.
+
+For architecture details and why this stack was chosen over alternatives: [research/server_stack.md](research/server_stack.md)
+
 ## Build
 
 ```bash
+arduino-cli lib install "PubSubClient"  # first time only
 arduino-cli compile --fqbn arduino:esp32:nano_nora .
 arduino-cli upload -p /dev/cu.usbmodem* --fqbn arduino:esp32:nano_nora .
 arduino-cli monitor -p /dev/cu.usbmodem*
@@ -103,13 +142,56 @@ uv run python generate.py
 
 Outputs `art/include/*.h` (what the sketch uses) and `art/preview/` (PNGs for review). Color sprites use a 4-bit indexed palette, so a shiny variant would just be a palette swap.
 
+## Sensor calibration
+
+### SCD4x (CO2 / temp / humidity)
+
+**Auto Self-Calibration (ASC)** is enabled by default. It assumes the sensor sees fresh outdoor air (~420 ppm) for at least 4 hours once per week. If it lives near a window that gets opened regularly, it'll stay calibrated on its own.
+
+**Forced recalibration** — if readings drift noticeably, expose the sensor to a known CO2 concentration (e.g. outdoor air at ~420 ppm) for 3+ minutes, then call `performForcedRecalibration(targetCo2)`.
+
+**Temperature offset** — the SCD4x self-heats slightly. Use `setTemperatureOffset()` to compensate (0-20C range). Compare against a known-good thermometer and adjust.
+
+**Altitude compensation** — CO2 readings vary with pressure. Call `setSensorAltitude(meters)` once if you're significantly above sea level.
+
+Note: `persistSettings()` saves calibration to EEPROM but only supports ~2000 writes. Don't call it in a loop.
+
+Docs: [Sensirion SCD4x datasheet](https://sensirion.com/media/documents/48C4B7FB/66E05452/CD_DS_SCD40_SCD41_Datasheet_D1.pdf) · [Adafruit SCD-40 guide](https://learn.adafruit.com/adafruit-scd-40-and-scd-41)
+
+### SGP40 (VOC)
+
+The SGP40's VOC index algorithm is self-calibrating. It continuously learns a baseline over ~12 hours of operation, so readings get more meaningful the longer it runs. Index 100 = average conditions for that environment.
+
+**Temp/humidity compensation** — the sketch feeds SCD4x temp and humidity into `measureVocIndex()` automatically. Without this, it defaults to 25C/50%.
+
+**Tunable parameters** — `voc_index_offset` (default 100), `learning_time_hours` (default 12), `gating_max_duration_min` (default 180). Adjust via the Sensirion VOC Algorithm library if defaults don't suit your environment.
+
+There is no manual calibration procedure. Just give it time to learn.
+
+Docs: [Sensirion SGP40 datasheet](https://sensirion.com/media/documents/296373BB/6203C5DF/Sensirion_Gas_Sensors_Datasheet_SGP40.pdf) · [Adafruit SGP40 guide](https://learn.adafruit.com/adafruit-sgp40)
+
+### PMSA003I (PM2.5)
+
+The PMSA003I is factory-calibrated and has no user-accessible calibration. Readings are computed on-board from laser scattering with built-in correction factors.
+
+**Maintenance** — the intake fan can accumulate dust over time. If readings seem consistently high, gently blow out the inlet with compressed air.
+
+Docs: [Plantower PMSA003I datasheet](https://cdn-shop.adafruit.com/product-files/4632/4505_PMSA003I_series_data_manual_English_V2.6.pdf) · [Adafruit PMSA003I guide](https://learn.adafruit.com/pmsa003i)
+
 ## Project structure
 
 ```
-koffing.ino              Main sketch
-research/                Sensor docs and API notes
+koffing.ino              Main sketch (sensors + WiFi/MQTT)
+secrets.h.example        WiFi/MQTT credentials template
+research/                Sensor docs, API notes, architecture decisions
 wiring/                  Wiring diagrams
 plans/                   Build plans
+server/                  Server stack configs and setup script
+  setup.sh               Install + configure Mosquitto/Telegraf/InfluxDB/Grafana
+  Brewfile               Homebrew package list
+  mosquitto/             MQTT broker config
+  telegraf/              Data bridge config (MQTT → InfluxDB)
+  grafana/               Dashboard provisioning and panel definitions
 art/
   include/               Arduino C headers (sprite data + library)
     koffing_gfx.h        Public API — only file you need to include
@@ -126,4 +208,5 @@ art/
 - [MiCS5524 — CO / combustible gas sensor](research/mics5524.md)
 - [OLED SSD1306 — 128x64 display](research/oled_ssd1306.md)
 - [Arduino Nano ESP32 — board notes](research/nano_esp32.md)
+- [Server stack — architecture and design decisions](research/server_stack.md)
 - [Build plan](plans/build_plan.md)

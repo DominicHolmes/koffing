@@ -69,9 +69,15 @@ brew services restart telegraf
 
 # 7. Configure Grafana
 echo "Configuring Grafana..."
+GRAFANA_CONF="$PREFIX/etc/grafana/grafana.ini"
 GRAFANA_PROV="$PREFIX/share/grafana/conf/provisioning"
 GRAFANA_DASH="$PREFIX/var/lib/grafana/dashboards"
 mkdir -p "$GRAFANA_PROV/datasources" "$GRAFANA_PROV/dashboards" "$GRAFANA_DASH"
+
+# Append anonymous auth config (skip login)
+if ! grep -q "auth.anonymous" "$GRAFANA_CONF" 2>/dev/null | grep -q "enabled = true"; then
+  cat "$SCRIPT_DIR/grafana/grafana.ini" >> "$GRAFANA_CONF"
+fi
 
 sed "s|INFLUX_TOKEN_PLACEHOLDER|$INFLUX_TOKEN|g" \
   "$SCRIPT_DIR/grafana/provisioning/datasources.yaml" > "$GRAFANA_PROV/datasources/koffing.yaml"

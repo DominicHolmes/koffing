@@ -60,7 +60,7 @@ fi
 if [ -z "${INFLUX_TOKEN:-}" ]; then
   echo "Creating API token..."
   TOKEN_OUTPUT=$(influxdb3 create token --admin 2>&1 || true)
-  INFLUX_TOKEN=$(echo "$TOKEN_OUTPUT" | sed -n 's/.*Token: *//p' | head -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:cntrl:]')
+  INFLUX_TOKEN=$(echo "$TOKEN_OUTPUT" | sed -n 's/.*Token: *//p' | head -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:cntrl:]' | xargs)
 
   if [ -z "$INFLUX_TOKEN" ]; then
     echo "Could not parse token. Output was:"
@@ -113,3 +113,8 @@ echo "MQTT:     localhost:1883 or $HOSTNAME:1883"
 echo ""
 echo "Next: set MQTT_SERVER in secrets.h to this machine's IP or hostname.local"
 echo "Test MQTT: mosquitto_sub -t 'koffing/sensors'"
+echo ""
+echo "Tailscale (one-time setup for remote access):"
+echo "  sudo tailscaled install-system-daemon"
+echo "  tailscale up"
+echo "  tailscale ip -4   # use this IP to access Grafana remotely"

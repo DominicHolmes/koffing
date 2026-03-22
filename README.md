@@ -4,6 +4,16 @@ Air quality monitor built around an Arduino Nano ESP32. Reads PM2.5, CO2, VOC, t
 
 ![Koffing states](art/preview/preview.png)
 
+<p align="center">
+  <img src="images/display.jpg" width="400" alt="OLED display showing Koffing sprite and sensor readings">
+  &nbsp;&nbsp;
+  <img src="images/breadboard.jpg" width="400" alt="Breadboard wiring with Arduino Nano ESP32 and sensors">
+  <br>
+  <sub>OLED showing Koffing sprite + live sensor readings</sub>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <sub>Breadboard prototype with all sensors wired up</sub>
+</p>
+
 ## Hardware
 
 | Component | What it measures | Interface | I2C Addr |

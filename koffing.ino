@@ -207,7 +207,7 @@ void read_vbus() {
   vbus_voltage = (analogRead(VBUS_PIN) / 4095.0) * 3.3 * 2.0;
 }
 
-// Map PM2.5 µg/m³ to Koffing level 0-10 (suboptimal-first scale)
+// Map PM2.5 µg/m³ to level 0-10 (suboptimal-first scale)
 uint8_t pm25_to_level(uint16_t pm25) {
   if (pm25 <= 3)   return 0;
   if (pm25 <= 6)   return 1;
@@ -218,6 +218,55 @@ uint8_t pm25_to_level(uint16_t pm25) {
   if (pm25 <= 55)  return 8;
   if (pm25 <= 100) return 9;
   return 10;
+}
+
+// Map CO2 ppm to level 0-10 (outdoor ~420, stuffy room ~1000+)
+uint8_t co2_to_level(uint16_t co2) {
+  if (co2 <= 500)  return 0;
+  if (co2 <= 600)  return 1;
+  if (co2 <= 700)  return 2;
+  if (co2 <= 800)  return 3;
+  if (co2 <= 1000) return constrain(map(co2, 801, 1000, 4, 5), 4, 5);
+  if (co2 <= 1500) return constrain(map(co2, 1001, 1500, 6, 7), 6, 7);
+  if (co2 <= 2000) return 8;
+  if (co2 <= 3000) return 9;
+  return 10;
+}
+
+// Map SGP40 VOC index to level 0-10 (100 = baseline average)
+uint8_t voc_to_level(int32_t voc) {
+  if (voc <= 100)  return 0;
+  if (voc <= 130)  return 1;
+  if (voc <= 160)  return 2;
+  if (voc <= 200)  return 3;
+  if (voc <= 250)  return constrain(map(voc, 201, 250, 4, 5), 4, 5);
+  if (voc <= 350)  return constrain(map(voc, 251, 350, 6, 7), 6, 7);
+  if (voc <= 400)  return 8;
+  if (voc <= 450)  return 9;
+  return 10;
+}
+
+// Map MiCS5524 raw ADC to level 0-10 (lower = cleaner)
+uint8_t gas_to_level(uint16_t gas) {
+  if (gas <= 80)   return 0;
+  if (gas <= 150)  return 1;
+  if (gas <= 200)  return 2;
+  if (gas <= 300)  return 3;
+  if (gas <= 450)  return constrain(map(gas, 301, 450, 4, 5), 4, 5);
+  if (gas <= 700)  return constrain(map(gas, 451, 700, 6, 7), 6, 7);
+  if (gas <= 900)  return 8;
+  if (gas <= 1200) return 9;
+  return 10;
+}
+
+// Worst-of-all-sensors — any single bad reading drives the visual
+uint8_t air_quality_level() {
+  uint8_t level = 0;
+  if (pms_got_data)  level = max(level, pm25_to_level(data.pm25));
+  if (scd_got_data)  level = max(level, co2_to_level(data.co2));
+  if (sgp_got_data)  level = max(level, voc_to_level(data.voc));
+  if (mics_got_data) level = max(level, gas_to_level(data.gas));
+  return level;
 }
 
 float c_to_f(float c) { return c * 9.0 / 5.0 + 32.0; }
@@ -255,7 +304,7 @@ void draw_wifi_status() {
 void draw_display() {
   display.clearDisplay();
 
-  uint8_t level = pm25_to_level(data.pm25);
+  uint8_t level = air_quality_level();
   koffing_draw(display, level, 0, 0);
 
   int16_t x = 68;
@@ -360,7 +409,7 @@ void serial_log() {
     Serial.print("%");
   }
   Serial.print(" VBUS=");  Serial.print(vbus_voltage, 2);  Serial.print("V");
-  Serial.print(" LVL=");   Serial.println(pms_got_data ? pm25_to_level(data.pm25) : -1);
+  Serial.print(" LVL=");   Serial.println(air_quality_level());
 }
 
 // --- Main ---

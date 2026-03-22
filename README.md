@@ -14,6 +14,12 @@ Air quality monitor built around an Arduino Nano ESP32. Reads PM2.5, CO2, VOC, t
   <sub>Breadboard prototype with all sensors wired up</sub>
 </p>
 
+<p align="center">
+  <img src="images/grafana.png" width="800" alt="Grafana dashboard showing PM2.5, CO2, VOC, humidity, gas, and temperature panels">
+  <br>
+  <sub>Grafana dashboard — some sensors still in calibration phase</sub>
+</p>
+
 ## Hardware
 
 | Component | What it measures | Interface | I2C Addr |

@@ -9,7 +9,7 @@ Air quality monitor built around an Arduino Nano ESP32. Reads PM2.5, CO2, VOC, t
   &nbsp;&nbsp;
   <img src="images/breadboard.jpg" width="400" alt="Breadboard wiring with Arduino Nano ESP32 and sensors">
   <br>
-  <sub>OLED showing Koffing sprite + live sensor readings</sub>
+  <sub>OLED showing basic screen layout during testing</sub>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <sub>Breadboard prototype with all sensors wired up</sub>
 </p>

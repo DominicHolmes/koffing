@@ -60,7 +60,7 @@ fi
 if [ -z "${INFLUX_TOKEN:-}" ]; then
   echo "Creating API token..."
   TOKEN_OUTPUT=$(influxdb3 create token --admin 2>&1 || true)
-  INFLUX_TOKEN=$(echo "$TOKEN_OUTPUT" | sed -n 's/.*Token: *//p' | head -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:cntrl:]')
+  INFLUX_TOKEN=$(echo "$TOKEN_OUTPUT" | sed -n 's/.*Token: *//p' | head -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:cntrl:]' | xargs)
 
   if [ -z "$INFLUX_TOKEN" ]; then
     echo "Could not parse token. Output was:"

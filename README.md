@@ -15,7 +15,7 @@ Air quality monitor built around an Arduino Nano ESP32. Reads PM2.5, CO2, VOC, t
 | [OLED SSD1306](research/oled_ssd1306.md) | 128x64 mono display | I2C | 0x3C |
 | [Arduino Nano ESP32](research/nano_esp32.md) | Microcontroller (WiFi-capable) | -- | -- |
 
-The SCD4x handles temp/humidity compensation for the SGP40, so no separate SHT31 needed. MiCS5524 isn't wired up yet. Note: the SCD4x needs real power (not USB from a laptop) — it peaks at 205mA during measurement. See [SCD4x debugging notes](research/scd4x_debugging.md) for the full story.
+The SCD4x handles temp/humidity compensation for the SGP40, so no separate SHT31 needed. MiCS5524 isn't wired up yet. Note: the SCD4x needs real power (not USB from a laptop) — it peaks at 205mA during measurement. The SCD4x is driven with raw Wire I2C commands rather than the Sensirion library (which caused communication failures). See [SCD4x debugging notes](research/scd4x_debugging.md) for the full story.
 
 ## Wiring
 
@@ -198,7 +198,9 @@ Outputs `art/include/*.h` (what the sketch uses) and `art/preview/` (PNGs for re
 
 Note: `persistSettings()` saves calibration to EEPROM but only supports ~2000 writes. Don't call it in a loop.
 
-Docs: [Sensirion SCD4x datasheet](https://sensirion.com/media/documents/48C4B7FB/66E05452/CD_DS_SCD40_SCD41_Datasheet_D1.pdf) · [Adafruit SCD-40 guide](https://learn.adafruit.com/adafruit-scd-40-and-scd-41)
+Docs: [Sensirion SCD4x datasheet](https://cdn-learn.adafruit.com/assets/assets/000/104/015/original/Sensirion_CO2_Sensors_SCD4x_Datasheet.pdf?1629489682) · [Adafruit SCD-40 guide](https://learn.adafruit.com/adafruit-scd-40-and-scd-41)
+
+Note: The SCD4x is driven with raw Wire I2C commands instead of the Sensirion library. The Sensirion library's CRC framing caused persistent communication failures where the sensor would ACK commands but never report data ready. The raw approach (inspired by [bb_scd41](https://github.com/bitbank2/bb_scd41)) resolved this. See [debugging log](research/scd4x_debugging.md) for details.
 
 ### SGP40 (VOC)
 

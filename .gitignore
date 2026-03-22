@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 secrets.h
-*.log
+logs/*.log
+!logs/.gitkeep
 .env
 server/.influx_token

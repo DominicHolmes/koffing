@@ -30,11 +30,19 @@ STEMMA QT order doesn't matter — I2C is a shared bus. The OLED connects via ju
 
 No conflicts.
 
-## Future: MiCS5524 (analog)
+## MiCS5524 (analog)
 ```
 MiCS5524    →  Nano ESP32
 Ao          →  A0
 En!         →  GND (always on)
 GND         →  GND
-5V          →  VBUS (5V USB power)
+5V          →  VUSB (5V USB power)
 ```
+
+## VBUS Voltage Divider (A1)
+```
+VUSB ─── 10kΩ ──┬── 10kΩ ─── GND
+                 │
+                 A1
+```
+Two 10kΩ resistors divide the ~5V USB rail to ~2.5V for the ESP32's 3.3V-max ADC. Code scales the reading back up by 2x. Displayed on OLED bottom-left; goes inverse below 4.75V to flag a weak adapter or cable. Also published as `vbus` over MQTT.

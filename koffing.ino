@@ -8,7 +8,6 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_PM25AQI.h>
 #include <Adafruit_SGP40.h>
-#include <SensirionI2cScd4x.h>
 #include "art/include/koffing_gfx.h"
 #include "secrets.h"
 
@@ -18,11 +17,14 @@
 #define SCD4X_TIMEOUT_MS 300000  // 5 minutes — boots once, runs for days
 #define MICS_PIN A0
 #define MICS_WARMUP_MS 180000    // 3 minutes before readings are meaningful
+#define VBUS_PIN A1              // USB 5V rail via voltage divider (2x 10k)
+#define VBUS_LOW_THRESHOLD 4.75  // warn below this voltage
 
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, -1);
 Adafruit_PM25AQI pms;
 Adafruit_SGP40 sgp;
-SensirionI2cScd4x scd;
+
+#define SCD4X_ADDR ((uint8_t)0x62)
 
 WiFiClient espClient;
 PubSubClient mqtt(espClient);
@@ -47,6 +49,8 @@ struct Readings {
   float temp;
   float humidity;
 } data = {0, 0, 0, 0, 25.0, 50.0};
+
+float vbus_voltage = 0.0;
 
 // --- WiFi + MQTT ---
 
@@ -103,8 +107,55 @@ void mqtt_publish() {
   }
   if (mics_got_data)
     n += snprintf(buf + n, sizeof(buf) - n, ",\"gas\":%u", data.gas);
+  n += snprintf(buf + n, sizeof(buf) - n, ",\"vbus\":%.2f", vbus_voltage);
   snprintf(buf + n, sizeof(buf) - n, "}");
   mqtt.publish("koffing/sensors", buf);
+}
+
+// --- SCD4x raw I2C (mirrors bb_scd41 approach) ---
+
+void scd_cmd(uint16_t cmd) {
+  Wire.beginTransmission(SCD4X_ADDR);
+  Wire.write(cmd >> 8);
+  Wire.write(cmd & 0xFF);
+  Wire.endTransmission();
+}
+
+bool scd_init() {
+  Wire.beginTransmission(SCD4X_ADDR);
+  if (Wire.endTransmission() != 0) return false;
+
+  scd_cmd(0x36f6);  // wakeup
+  delay(20);
+  scd_cmd(0x3646);  // reinit
+  delay(30);
+  scd_cmd(0x21b1);  // start_periodic_measurement
+  delay(1);
+  return true;
+}
+
+bool scd_data_ready() {
+  scd_cmd(0xe4b8);  // get_data_ready_status
+  delay(5);
+  uint8_t buf[3];
+  Wire.requestFrom(SCD4X_ADDR, (uint8_t)3);
+  for (int i = 0; i < 3; i++) buf[i] = Wire.read();
+  uint16_t status = ((uint16_t)buf[0] << 8) | buf[1];
+  return (status & 0x07FF) != 0;
+}
+
+bool scd_read_measurement(uint16_t &co2, float &temp, float &humidity) {
+  scd_cmd(0xec05);  // read_measurement
+  delay(5);
+  uint8_t buf[9];
+  Wire.requestFrom(SCD4X_ADDR, (uint8_t)9);
+  for (int i = 0; i < 9; i++) buf[i] = Wire.read();
+  co2 = ((uint16_t)buf[0] << 8) | buf[1];
+  uint16_t t_raw = ((uint16_t)buf[3] << 8) | buf[4];
+  uint16_t h_raw = ((uint16_t)buf[6] << 8) | buf[7];
+  temp = -45.0 + 175.0 * t_raw / 65536.0;
+  humidity = 100.0 * h_raw / 65536.0;
+  return co2 > 0;
 }
 
 // --- Sensor reads ---
@@ -129,12 +180,10 @@ void read_sgp() {
 
 void read_scd() {
   if (!scd_ok) return;
-  bool ready = false;
-  scd.getDataReadyStatus(ready);
-  if (ready) {
+  if (scd_data_ready()) {
     uint16_t co2;
     float t, h;
-    if (scd.readMeasurement(co2, t, h) == 0 && co2 > 0) {
+    if (scd_read_measurement(co2, t, h)) {
       data.co2 = co2;
       data.temp = t;
       data.humidity = h;
@@ -152,6 +201,10 @@ void read_mics() {
   if (millis() < MICS_WARMUP_MS) return;
   data.gas = analogRead(MICS_PIN);
   mics_got_data = true;
+}
+
+void read_vbus() {
+  vbus_voltage = (analogRead(VBUS_PIN) / 4095.0) * 3.3 * 2.0;
 }
 
 // Map PM2.5 µg/m³ to Koffing level 0-10 (suboptimal-first scale)
@@ -273,9 +326,16 @@ void draw_display() {
   }
 
   display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 56);
-  display.print("koffing v1");
+  if (vbus_voltage < VBUS_LOW_THRESHOLD) {
+    display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+  } else {
+    display.setTextColor(SSD1306_WHITE);
+  }
+  char vbuf[10];
+  snprintf(vbuf, sizeof(vbuf), "%4.2fV", vbus_voltage);
+  display.print(vbuf);
+  display.setTextColor(SSD1306_WHITE);
 
   draw_wifi_status();
   display.display();
@@ -284,6 +344,12 @@ void draw_display() {
 // --- Serial logging ---
 
 void serial_log() {
+  Serial.print("[");
+  Serial.print(pms_ok ? "P" : "p");
+  Serial.print(sgp_ok ? "S" : "s");
+  Serial.print(scd_ok ? "C" : "c");
+  Serial.print(mics_ok ? "G" : "g");
+  Serial.print("] ");
   Serial.print("PM2.5=");  Serial.print(pms_got_data ? (int)data.pm25 : -1);
   Serial.print(" VOC=");   Serial.print(sgp_got_data ? (int)data.voc : -1);
   Serial.print(" CO2=");   Serial.print(scd_got_data ? (int)data.co2 : -1);
@@ -293,6 +359,7 @@ void serial_log() {
     Serial.print("F H=");  Serial.print(data.humidity, 1);
     Serial.print("%");
   }
+  Serial.print(" VBUS=");  Serial.print(vbus_voltage, 2);  Serial.print("V");
   Serial.print(" LVL=");   Serial.println(pms_got_data ? pm25_to_level(data.pm25) : -1);
 }
 
@@ -304,6 +371,7 @@ void setup() {
   Serial.println("\n=== Koffing ===");
 
   Wire.begin();
+  Wire1.begin(D2, D3);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println("OLED FAIL — halting");
@@ -316,24 +384,21 @@ void setup() {
   display.println("Koffing init...");
   display.display();
 
-  pms_ok = pms.begin_I2C();
-  Serial.print("PMS:   "); Serial.println(pms_ok ? "OK" : "FAIL");
+  scd_ok = scd_init();
+  scd_start = millis();
+  Serial.print("SCD4x: "); Serial.println(scd_ok ? "started" : "FAIL");
+
+  pms_ok = pms.begin_I2C(&Wire1);
+  Serial.print("PMS:   "); Serial.println(pms_ok ? "OK (Wire1)" : "FAIL");
 
   sgp_ok = sgp.begin();
   Serial.print("SGP40: "); Serial.println(sgp_ok ? "OK" : "FAIL");
 
-  scd.begin(Wire, 0x62);
-  scd.wakeUp();
-  delay(50);
-  scd.stopPeriodicMeasurement();
-  delay(500);
-  scd_ok = (scd.startPeriodicMeasurement() == 0);
-  scd_start = millis();
-  Serial.print("SCD4x: "); Serial.println(scd_ok ? "started" : "FAIL");
-
   pinMode(MICS_PIN, INPUT);
   mics_ok = true;
   Serial.println("MiCS:  OK (warmup 3 min)");
+
+  pinMode(VBUS_PIN, INPUT);
 
   wifi_connect();
   mqtt.setServer(MQTT_SERVER, MQTT_PORT);
@@ -342,10 +407,11 @@ void setup() {
 }
 
 void loop() {
+  read_scd();
   read_pms();
   read_sgp();
-  read_scd();
   read_mics();
+  read_vbus();
   draw_display();
   serial_log();
   mqtt.loop();

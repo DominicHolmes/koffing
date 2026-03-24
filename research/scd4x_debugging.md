@@ -40,7 +40,30 @@ Returns 9 bytes: 3 words × (2 data bytes + 1 CRC byte)
 
 ---
 
-## Session 4 — 2026-03-22: Sensor confirmed dead
+## Session 5 — 2026-03-24: Periodic failure after 1-2 hours
+
+### Observations
+- Sensor worked for ~1.5 hours then stopped reporting.
+- All SCD4x fields (CO2, Temp, Humidity) disappeared from MQTT/Grafana simultaneously at 16:08.
+- PM2.5 (Wire1) and Gas (Analog) continued reporting, but Gas (MiCS5524) showed massive noise/spikes immediately following the SCD4x failure.
+- VOC (SGP40) flatlined at 100 after a brief drop to 0, suggesting the ESP32 rebooted and the SGP40 lost its SCD4x-based compensation.
+
+### Diagnosis: The 16:08:23 "Electrical Event"
+The Grafana telemetry shows a cascading failure triggered by a specific event at **16:08:23**:
+1.  **Sudden Silence (16:08:23 – 16:11:43):** Most sensors stop reporting simultaneously. This indicates the ESP32 likely entered a brown-out loop or hung due to power instability.
+2.  **SCD4x Hard Lockout:** The SCD40 never recovers. Its final successful reading is at 16:08:23. Post-reboot, it fails to initialize, confirming an internal hardware fault that occurred at that timestamp.
+3.  **MiCS5524 "Analog Death" (Gas):** The Gas sensor (Analog A0) shows the most dramatic evidence. Before the event, it was steady at ~700. After recovery (16:11:43), it begins oscillating wildly between **297 and 2469**. This is characteristic of a floating analog input or a collapsed reference voltage. If the SCD40 is internally shorting the 5V rail, the ESP32's internal ADC reference will be completely unstable.
+4.  **PM2.5 Spike (16:09:21):** A single outlier of 29 µg/m³ appears during the recovery phase, likely a corrupted I2C frame or an artifact of the PMSA003I rebooting.
+5.  **VOC Index Reset:** The SGP40 "dives" to 1 at 16:12:59 and then flatlines at 100. This is the behavior of a freshly rebooted SGP40 that has lost its history and is waiting for new compensation data (which it isn't getting because the SCD40 is dead).
+
+**Conclusion:** The SCD40 experienced a catastrophic internal failure at 16:08:23 that significantly loaded the 5V power rail, causing an ESP32 brown-out and permanently damaging the analog reference/rail stability. The sensor is not just "not reading"; it is actively compromising the rest of the system's electrical integrity.
+
+### Resolution/Next Steps
+- The sensor is exhibiting hardware instability that persists across MCU resets.
+- **Action:** Add a retry mechanism to `read_scd()` to attempt `scd_init()` periodically if `scd_ok` is false.
+- **Action:** Request RMA from Adafruit. The self-test failure (`0x20F`) combined with these lockouts is conclusive evidence of a defective unit.
+
+---
 
 ### Isolated debug sketch results
 Ran `examples/scd40_debug` with SCD4x alone on Wire bus (PMSA003I on Wire1, no other traffic):

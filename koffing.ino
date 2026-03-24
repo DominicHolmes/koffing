@@ -39,6 +39,8 @@ bool sgp_got_data = false;
 bool scd_got_data = false;
 bool mics_got_data = false;
 unsigned long scd_start = 0;
+unsigned long scd_last_read = 0;
+unsigned long scd_last_retry = 0;
 unsigned long wifi_lost_at = 0;
 
 struct Readings {
@@ -179,7 +181,19 @@ void read_sgp() {
 }
 
 void read_scd() {
-  if (!scd_ok) return;
+  if (!scd_ok) {
+    if (millis() - scd_last_retry > SCD4X_TIMEOUT_MS) {
+      scd_last_retry = millis();
+      Serial.println("SCD4x: attempting re-init...");
+      scd_ok = scd_init();
+      if (scd_ok) {
+        scd_start = millis();
+        scd_got_data = false;
+      }
+    }
+    return;
+  }
+
   if (scd_data_ready()) {
     uint16_t co2;
     float t, h;
@@ -188,10 +202,15 @@ void read_scd() {
       data.temp = t;
       data.humidity = h;
       scd_got_data = true;
+      scd_last_read = millis();
     }
   }
-  if (!scd_got_data && millis() - scd_start > SCD4X_TIMEOUT_MS) {
+
+  // Disable if it never starts or stops producing data
+  unsigned long since_last = scd_got_data ? (millis() - scd_last_read) : (millis() - scd_start);
+  if (since_last > SCD4X_TIMEOUT_MS) {
     scd_ok = false;
+    scd_last_retry = millis();
     Serial.println("SCD4x: timed out, disabling");
   }
 }

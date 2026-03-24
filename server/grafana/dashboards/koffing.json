@@ -138,6 +138,31 @@
       "fieldConfig": {
         "defaults": { "color": { "mode": "palette-classic" } }
       }
+    },
+    {
+      "id": 7,
+      "title": "VBUS Voltage (V)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "datasource": { "type": "influxdb", "uid": "influxdb-koffing" },
+      "targets": [{
+        "query": "SELECT time, vbus FROM air_quality WHERE $timeFilter",
+        "rawQuery": true,
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 4.75, "color": "red" }
+            ]
+          },
+          "custom": { "thresholdsStyle": { "mode": "line" } }
+        }
+      }
     }
   ]
 }

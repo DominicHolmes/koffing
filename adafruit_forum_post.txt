@@ -1,0 +1,22 @@
+Subject: SCD40 Periodic Failure / Self-Test 0x20F (NotEnoughData)
+
+Hi Adafruit Support,
+
+I'm experiencing persistent issues with a STEMMA QT SCD40 sensor. It's connected to an Arduino Nano ESP32 alongside an SGP40 and an SSD1306 OLED on the main Wire bus.
+
+The sensor works for about 1-2 hours after power-on, providing reasonable readings, but then it abruptly stops. My logs show that at the moment of failure, the sensor stops responding to I2C commands and fails to set the "Data Ready" flag. Even after rebooting the ESP32, the sensor fails to initialize (returns NACK on the 0x62 address probe) until I physically remove power from the board.
+
+I've performed the following troubleshooting steps using the official Sensirion Arduino I2C SCD4x library:
+1. **I2C Isolation:** Moved my PMSA003I (which was previously on the same bus) to a dedicated second I2C bus (Wire1) to eliminate bus interference.
+2. **Factory Reset:** Performed a factory reset and re-initialization.
+3. **Official Library Test:** Using the standard Sensirion library example (stopPeriodicMeasurement -> getSerialNumber -> performSelfTest), the sensor consistently fails its internal self-test with malfunction code 0x20F (NotEnoughData).
+4. **Persistent Lockout:** The sensor works for 1-2 hours then enters a lockout state that requires a hard power cycle (VDD removal) to recover. During this state, it returns NACK on the 0x62 address probe.
+
+The most recent failure at **16:08:23** was a cascading electrical event that affected the entire system:
+- **Immediate Silence:** All sensors stopped reporting for ~3 minutes, indicating an ESP32 brown-out.
+- **Analog Reference Failure:** After the ESP32 rebooted, my analog gas sensor (MiCS5524) began oscillating wildly (swinging from 300 to 2500 ADC counts) after being rock-steady at ~700 previously. This suggests the SCD40 is pulling down or injecting significant noise into the 5V rail/analog reference.
+- **SGP40 Reset:** The VOC sensor reset to its default baseline (100) because it lost the SCD40-provided compensation data.
+
+The fact that the SCD40 consistently fails its internal self-test (`0x20F`) and appears to be actively compromising the stability of the 5V power rail when it fails is conclusive evidence of a defective internal component. Could I please get an RMA for a replacement?
+
+Thank you!
